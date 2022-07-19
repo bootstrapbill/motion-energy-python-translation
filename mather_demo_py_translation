@@ -1,0 +1,177 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Python translation of George Mather's 1D Motion Energy Sensor Demo
+see: http://www.georgemather.com/Model.html
+
+Notes: requires the stimulus .mat files to run
+       you can switch between stimuli below.
+
+@author: willturner
+"""
+
+# import required packages
+import math
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.signal import convolve2d 
+from scipy.io import loadmat
+
+## Step 1a:
+# Define the space axis of the filters
+nx = 80             # Number of spatial samples in the filter
+max_x = 2.0         # Half-width of filter (deg)
+dx = (max_x*2)/nx   # Spatial sampling interval of filter (deg)
+
+# A row vector holding spatial sampling intervals
+x_filt = np.linspace(-max_x,max_x,nx)
+
+# Spatial filter parameters
+sx = 0.5 # standard deviation of Gaussian, in deg.
+sf = 1.1 # spatial frequency of carrier, in cpd
+
+# Spatial filter response
+gauss = np.exp(-x_filt**2/sx**2)          # Gaussian envelope
+even_x = np.cos(2*np.pi*sf*x_filt)*gauss  # Even Gabor
+odd_x = np.sin(2*np.pi*sf*x_filt)*gauss   # Odd Gabor
+
+# plot spatial filters
+plt.plot(x_filt,even_x)
+plt.plot(x_filt,odd_x)
+plt.title('Spatial Profile')
+plt.show()
+
+## Step 1b:
+# Define the time axis of the filters
+nt = 100        # Number of temporal samples in the filter
+max_t = 0.5     # Duration of impulse response (sec)
+dt = max_t/nt   # Temporal sampling interval (sec)
+
+# A column vector holding temporal sampling intervals
+t_filt = np.linspace(0,max_t,nt).T
+ 
+#Temporal filter parameters
+k = 100     # Scales the response into time units
+slow_n = 9  # Width of the slow temporal filter
+fast_n = 6  # Width of the fast temporal filter
+beta = 0.9  # Weighting of the -ve phase of the temporal resp relative to the +ve phase.
+
+# Temporal filter response
+slow_t = (k*t_filt)**slow_n * np.exp(-k*t_filt)*(1/math.factorial(slow_n)-beta*((k*t_filt)**2)/math.factorial(slow_n+2))    
+fast_t = (k*t_filt)**fast_n * np.exp(-k*t_filt)*(1/math.factorial(fast_n)-beta*((k*t_filt)**2)/math.factorial(fast_n+2)) 
+
+# plot temporal filters
+plt.plot(t_filt,slow_t)
+plt.plot(t_filt,fast_t)
+plt.title('Temporal Profile')
+plt.show()
+
+## Step 1c:
+e_slow = slow_t.reshape(100,1) @ even_x.reshape(1,80) # SE/TS
+e_fast = fast_t.reshape(100,1) @ even_x.reshape(1,80) # SE/TF
+o_slow = slow_t.reshape(100,1) @ odd_x.reshape(1,80)  # SO/TS
+o_fast = fast_t.reshape(100,1) @ odd_x.reshape(1,80)  # SO/TF
+
+## Step 2: 
+# space time oriented filters
+left_1 = o_fast+e_slow      # L1
+left_2 = -o_slow+e_fast     # L2
+right_1 = -o_fast+e_slow    # R1
+right_2 = o_slow+e_fast     # R2
+
+# plot the oriented filters 
+fig, (ax1, ax2, ax3, ax4) = plt.subplots(1, 4)
+fig.suptitle('Oriented filters')
+ax1.imshow(left_1)
+ax2.imshow(left_2)
+ax3.imshow(right_1)
+ax4.imshow(right_2)
+
+## Step 3a: 
+# SPACE: x_stim is a row vector to hold sampled x-positions of the space.
+stim_width = 4  # half width in degrees, gives 8 degrees total
+x_stim = np.arange(-stim_width, np.round(stim_width-dx), dx)
+
+# TIME: t_stim is a col vector to hold sampled time intervals of the space
+stim_dur = 1.5  # total duration of the stimulus in seconds
+t_stim = np.arange(0, np.round(stim_dur-dt), dt).T 
+
+## Step 3b:
+# load stimulus (note, you must be in folder with the .mat files)
+# stim = loadmat('AB15.mat')
+# OR 
+stim = loadmat('AB16.mat')
+
+stim = stim['stim']
+    
+# show stimulus 
+fig, ax = plt.subplots()
+c = ax.imshow(stim)
+ax.set_title('Stimulus')
+plt.show()
+
+## Step 3c:
+# Rightward responses
+resp_right_1=convolve2d(stim,right_1,mode='valid')
+resp_right_2=convolve2d(stim,right_2,mode='valid')
+
+# Leftward responses
+resp_left_1=convolve2d(stim,left_1,mode='valid')
+resp_left_2=convolve2d(stim,left_2,mode='valid')
+
+## Step 4:
+resp_left_1 = resp_left_1**2
+resp_left_2 = resp_left_2**2
+resp_right_1 = resp_right_1**2
+resp_right_2 = resp_right_2**2
+
+# Step 5:
+# Calc left and right energy
+energy_right = resp_right_1 + resp_right_2
+energy_left = resp_left_1 + resp_left_2
+
+# Calc total energy
+total_energy = np.sum(np.sum(energy_right))+np.sum(np.sum(energy_left));
+
+# Normalise
+RR1 = np.sum(np.sum(resp_right_1))/total_energy
+RR2 = np.sum(np.sum(resp_right_2))/total_energy
+LR1 = np.sum(np.sum(resp_left_1))/total_energy
+LR2 = np.sum(np.sum(resp_left_2))/total_energy
+
+## Step 6: 
+right_Total = RR1+RR2
+left_Total = LR1+LR2
+
+## Step 7: 
+motion_energy = right_Total - left_Total
+print('Net motion energy = ', motion_energy)
+
+## Plot model output: 
+# Generate motion contrast matrix    
+energy_opponent = energy_right - energy_left    # L-R difference matrix
+xv = energy_left.shape[0]                       # Get the size of the response matrix
+yv = energy_left.shape[1]                       # Get the size of the response matrix
+energy_flicker = total_energy/(xv * yv)         # A value for average total energy
+
+# Re-scale (normalize) each pixel in the L-R matrix using average energy.
+motion_contrast = energy_opponent/energy_flicker
+
+# Plot, scaling by max L or R value
+mc_max = np.max(np.max(motion_contrast))
+mc_min = np.min(np.min(motion_contrast))
+
+if (abs(mc_max) > abs(mc_min)):
+    peak = abs(mc_max)
+else:
+    peak = abs(mc_min)
+
+fig, ax = plt.subplots()
+
+c = ax.imshow(motion_contrast, vmin = -peak,
+              vmax = peak,
+              interpolation ='nearest', 
+              origin ='upper')
+  
+ax.set_title('Normalised Motion Energy')
+plt.show()
