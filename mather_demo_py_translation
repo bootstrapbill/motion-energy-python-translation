@@ -86,6 +86,11 @@ ax1.imshow(left_1)
 ax2.imshow(left_2)
 ax3.imshow(right_1)
 ax4.imshow(right_2)
+ax1.axis('off')
+ax2.axis('off')
+ax3.axis('off')
+ax4.axis('off')
+fig.tight_layout()
 
 ## Step 3a: 
 # SPACE: x_stim is a row vector to hold sampled x-positions of the space.
